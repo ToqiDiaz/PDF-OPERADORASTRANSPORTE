@@ -28,7 +28,9 @@ function App() {
     }
 
     if (name === 'telefono') {
-      nuevoValor = value.replace(/[^\d+\-\s]/g, '').slice(0, 30)
+      nuevoValor = value
+        .replace(/[^\d+\-\s]/g, '')
+        .slice(0, 30)
     }
 
     setFormData((prev) => ({
@@ -41,13 +43,15 @@ function App() {
   }
 
   const obtenerNombreArchivo = (response) => {
-    const disposition = response.headers.get('content-disposition')
+    const disposition =
+      response.headers.get('content-disposition')
 
     if (!disposition) {
       return 'SOLICITUD_OPERADORA.pdf'
     }
 
-    const match = disposition.match(/filename="?([^"]+)"?/)
+    const match =
+      disposition.match(/filename="?([^"]+)"?/)
 
     return match?.[1] || 'SOLICITUD_OPERADORA.pdf'
   }
@@ -70,20 +74,34 @@ function App() {
       formData.telefono,
     ]
 
-    if (camposObligatorios.some((campo) => !campo.trim())) {
-      setMensaje('Por favor complete todos los campos obligatorios.')
+    if (
+      camposObligatorios.some(
+        (campo) => !campo.trim()
+      )
+    ) {
+      setMensaje(
+        'Por favor complete todos los campos obligatorios.'
+      )
       setTipoMensaje('error')
       return
     }
 
     if (!/^\d{10}$/.test(formData.cedula)) {
-      setMensaje('La cédula debe contener exactamente 10 dígitos.')
+      setMensaje(
+        'La cédula debe contener exactamente 10 dígitos.'
+      )
       setTipoMensaje('error')
       return
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.correo)) {
-      setMensaje('Ingrese un correo electrónico válido.')
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        formData.correo
+      )
+    ) {
+      setMensaje(
+        'Ingrese un correo electrónico válido.'
+      )
       setTipoMensaje('error')
       return
     }
@@ -92,7 +110,7 @@ function App() {
       setGenerando(true)
 
       const response = await fetch(
-        'http://localhost:3001/api/generar-pdf',
+        'https://pdf-operadoras-backendv1.onrender.com/api/generar-pdf',
         {
           method: 'POST',
           headers: {
@@ -103,35 +121,56 @@ function App() {
       )
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
+        const errorData = await response
+          .json()
+          .catch(() => null)
 
         throw new Error(
-          errorData?.error || 'No fue posible generar el documento.'
+          errorData?.error ||
+            'No fue posible generar el documento.'
         )
       }
 
-      const nombreArchivo = obtenerNombreArchivo(response)
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
+      const nombreArchivo =
+        obtenerNombreArchivo(response)
 
-      const enlace = document.createElement('a')
+      const blob =
+        await response.blob()
+
+      const url =
+        window.URL.createObjectURL(blob)
+
+      const enlace =
+        document.createElement('a')
+
       enlace.href = url
       enlace.download = nombreArchivo
 
       document.body.appendChild(enlace)
+
       enlace.click()
       enlace.remove()
 
       window.URL.revokeObjectURL(url)
 
-      setCodigoGenerado(nombreArchivo.replace('.pdf', ''))
-      setMensaje('Documento generado y descargado correctamente.')
-      setTipoMensaje('success')
-    } catch (error) {
-      console.error(error)
+      setCodigoGenerado(
+        nombreArchivo.replace('.pdf', '')
+      )
 
       setMensaje(
-        error.message || 'Ocurrió un problema al generar el documento.'
+        'Documento generado y descargado correctamente.'
+      )
+
+      setTipoMensaje('success')
+    } catch (error) {
+      console.error(
+        'Error generando documento:',
+        error
+      )
+
+      setMensaje(
+        error.message ||
+          'No fue posible conectarse con el servidor.'
       )
 
       setTipoMensaje('error')
@@ -168,12 +207,15 @@ function App() {
               MUNICIPIO DEL DISTRITO METROPOLITANO DE QUITO
             </div>
 
-            <h1>Formulario de Operadoras de Transporte</h1>
+            <h1>
+              Formulario de Operadoras de Transporte
+            </h1>
 
             <p>
-              Complete la información solicitada. Una vez validada, el sistema
-              registrará la solicitud y generará automáticamente el documento
-              PDF para su descarga.
+              Complete la información solicitada. Una vez
+              validada, el sistema registrará la solicitud y
+              generará automáticamente el documento PDF para
+              su descarga.
             </p>
           </header>
 
@@ -286,16 +328,23 @@ function App() {
 
               <div className="license-options">
                 {['A', 'B', 'C', 'D'].map((tipo) => (
-                  <label className="radio-option" key={tipo}>
+                  <label
+                    className="radio-option"
+                    key={tipo}
+                  >
                     <input
                       type="radio"
                       name="licencia"
                       value={tipo}
-                      checked={formData.licencia === tipo}
+                      checked={
+                        formData.licencia === tipo
+                      }
                       onChange={handleChange}
                     />
 
-                    <span>Licencia tipo {tipo}</span>
+                    <span>
+                      Licencia tipo {tipo}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -338,12 +387,15 @@ function App() {
             </div>
 
             <div className="declaration-box">
-              <strong>Declaración</strong>
+              <strong>
+                Declaración
+              </strong>
 
               <p>
-                Declaro que la información proporcionada en este formulario es
-                verdadera y corresponde a los datos registrados por la
-                operadora y el solicitante.
+                Declaro que la información proporcionada en
+                este formulario es verdadera y corresponde a
+                los datos registrados por la operadora y el
+                solicitante.
               </p>
             </div>
 
@@ -366,11 +418,15 @@ function App() {
                   : 'message-box'
               }
             >
-              <strong>{mensaje}</strong>
+              <strong>
+                {mensaje}
+              </strong>
 
               {codigoGenerado && (
                 <>
-                  <p>Documento generado:</p>
+                  <p>
+                    Documento generado:
+                  </p>
 
                   <div className="document-code">
                     {codigoGenerado}
@@ -389,14 +445,18 @@ function App() {
           )}
 
           <div className="security-note">
-            <strong>Protección de información:</strong>{' '}
-            Los datos registrados serán utilizados para la gestión de la
-            solicitud. El archivo PDF se genera únicamente para descarga y no
-            se almacena permanentemente en esta versión del sistema.
+            <strong>
+              Protección de información:
+            </strong>{' '}
+            Los datos registrados serán utilizados para la
+            gestión de la solicitud. El archivo PDF se genera
+            únicamente para descarga y no se almacena
+            permanentemente en esta versión del sistema.
           </div>
 
           <div className="footer-form">
-            Secretaría de Movilidad · Distrito Metropolitano de Quito
+            Secretaría de Movilidad · Distrito
+            Metropolitano de Quito
           </div>
         </div>
       </div>
