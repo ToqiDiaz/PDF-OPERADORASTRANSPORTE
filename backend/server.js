@@ -23,8 +23,14 @@ const {
 
 const app = express()
 
-// Render asignará automáticamente PORT.
-// Localmente seguirá usando 3001.
+// IMPORTANTE PARA RENDER:
+// Render funciona detrás de un proxy.
+// Esto permite que express-rate-limit interprete correctamente
+// X-Forwarded-For.
+app.set('trust proxy', 1)
+
+// Render asigna PORT automáticamente.
+// En local usa 3001.
 const PORT = process.env.PORT || 3001
 
 /* =========================================================
@@ -36,6 +42,9 @@ const SUPABASE_URL =
 
 const SUPABASE_SECRET_KEY =
   process.env.SUPABASE_SECRET_KEY
+
+const FRONTEND_URL =
+  process.env.FRONTEND_URL
 
 if (
   !SUPABASE_URL ||
@@ -49,7 +58,7 @@ if (
 }
 
 /* =========================================================
-   CONEXIÓN SUPABASE
+   SUPABASE
 ========================================================= */
 
 const supabase = createClient(
@@ -65,10 +74,6 @@ const supabase = createClient(
 
 /* =========================================================
    CORS
-
-   Por ahora permite:
-   - React local
-   - La URL pública que después pondremos en FRONTEND_URL
 ========================================================= */
 
 const origenesPermitidos = [
@@ -76,20 +81,27 @@ const origenesPermitidos = [
   'http://127.0.0.1:5173',
 ]
 
-if (process.env.FRONTEND_URL) {
+// Agrega automáticamente la URL pública del frontend
+// configurada en Render.
+if (FRONTEND_URL) {
   origenesPermitidos.push(
-    process.env.FRONTEND_URL
+    FRONTEND_URL.trim().replace(/\/$/, '')
   )
 }
 
+console.log(
+  'Orígenes permitidos:',
+  origenesPermitidos
+)
+
 app.use(
   cors({
-    origin: function (
+    origin: (
       origin,
       callback
-    ) {
-      // Permite llamadas sin Origin
-      // como Render Health Check.
+    ) => {
+      // Permite llamadas internas, health checks,
+      // Postman, etc.
       if (!origin) {
         return callback(
           null,
@@ -97,9 +109,14 @@ app.use(
         )
       }
 
+      const origenNormalizado =
+        origin
+          .trim()
+          .replace(/\/$/, '')
+
       if (
         origenesPermitidos.includes(
-          origin
+          origenNormalizado
         )
       ) {
         return callback(
@@ -110,7 +127,7 @@ app.use(
 
       console.warn(
         'Origen bloqueado por CORS:',
-        origin
+        origenNormalizado
       )
 
       return callback(
@@ -133,6 +150,8 @@ app.use(
     exposedHeaders: [
       'Content-Disposition',
     ],
+
+    credentials: false,
   })
 )
 
@@ -151,6 +170,10 @@ app.use(
     limit: '30kb',
   })
 )
+
+/* =========================================================
+   RATE LIMIT
+========================================================= */
 
 const limiter = rateLimit({
   windowMs:
@@ -175,12 +198,6 @@ app.use(
 
 /* =========================================================
    PLANTILLA PDF
-
-   Debe existir aquí:
-
-   backend/
-      plantillas/
-         TESTplantilla_operadoras.pdf
 ========================================================= */
 
 const TEMPLATE_PATH =
@@ -207,23 +224,13 @@ function limpiarTexto(
 
   return valor
     .trim()
-    .replace(
-      /[<>]/g,
-      ''
-    )
-    .replace(
-      /\s+/g,
-      ' '
-    )
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
     .slice(
       0,
       maxLength
     )
 }
-
-/* =========================================================
-   CONSECUTIVO
-========================================================= */
 
 function rellenarNumero(
   numero
@@ -237,7 +244,7 @@ function rellenarNumero(
 }
 
 /* =========================================================
-   DIVIDIR TEXTO
+   TEXTO PDF
 ========================================================= */
 
 function dividirTexto({
@@ -299,10 +306,6 @@ function dividirTexto({
   return lineas
 }
 
-/* =========================================================
-   TAMAÑO AUTOMÁTICO
-========================================================= */
-
 function calcularTamanoFuente({
   texto,
   fuente,
@@ -335,10 +338,6 @@ function calcularTamanoFuente({
 
   return minFontSize
 }
-
-/* =========================================================
-   PÁRRAFOS
-========================================================= */
 
 function dibujarParrafo({
   page,
@@ -389,10 +388,6 @@ function dibujarParrafo({
 
   return posicionY
 }
-
-/* =========================================================
-   CAMPOS
-========================================================= */
 
 function dibujarCampo({
   page,
@@ -480,7 +475,7 @@ function dibujarCampo({
 }
 
 /* =========================================================
-   RUTA PRINCIPAL
+   PÁGINA PRINCIPAL
 ========================================================= */
 
 app.get(
@@ -508,9 +503,7 @@ app.get(
           .select(
             'id'
           )
-          .limit(
-            1
-          )
+          .limit(1)
 
       supabaseOk =
         !error
@@ -618,6 +611,16 @@ app.get(
             </strong>
           </p>
 
+          <p>
+            Frontend autorizado:
+            <strong>
+              ${
+                FRONTEND_URL ||
+                'No configurado'
+              }
+            </strong>
+          </p>
+
           <hr>
 
           <p>
@@ -638,7 +641,7 @@ app.get(
 )
 
 /* =========================================================
-   HEALTH CHECK PARA RENDER
+   HEALTH CHECK
 ========================================================= */
 
 app.get(
@@ -664,7 +667,7 @@ app.get(
 )
 
 /* =========================================================
-   ESTADO API
+   STATUS API
 ========================================================= */
 
 app.get(
@@ -683,6 +686,10 @@ app.get(
         )
           ? 'encontrada'
           : 'no encontrada',
+
+      frontend:
+        FRONTEND_URL ||
+        null,
 
       fecha:
         new Date()
@@ -704,7 +711,7 @@ app.post(
     try {
 
       /* ===================================================
-         RECIBIR DATOS
+         DATOS
       =================================================== */
 
       const compania =
@@ -756,7 +763,7 @@ app.post(
         )
 
       /* ===================================================
-         CAMPOS OBLIGATORIOS
+         VALIDACIONES
       =================================================== */
 
       if (
@@ -777,10 +784,6 @@ app.post(
           })
       }
 
-      /* ===================================================
-         VALIDAR CÉDULA
-      =================================================== */
-
       if (
         !/^\d{10}$/.test(
           cedula
@@ -793,10 +796,6 @@ app.post(
               'La cédula debe contener exactamente 10 dígitos.',
           })
       }
-
-      /* ===================================================
-         VALIDAR LICENCIA
-      =================================================== */
 
       if (
         ![
@@ -816,10 +815,6 @@ app.post(
           })
       }
 
-      /* ===================================================
-         VALIDAR CORREO
-      =================================================== */
-
       const regexCorreo =
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -837,7 +832,7 @@ app.post(
       }
 
       /* ===================================================
-         REGISTRAR EN SUPABASE
+         SUPABASE
       =================================================== */
 
       const {
@@ -1018,7 +1013,8 @@ app.post(
           }
         )
 
-        tituloY -= 15
+        tituloY -=
+          15
       }
 
       /* ===================================================
@@ -1063,7 +1059,8 @@ app.post(
             12.5,
         })
 
-      currentY -= 18
+      currentY -=
+        18
 
       /* ===================================================
          DATOS OPERADORA
@@ -1093,7 +1090,8 @@ app.post(
         }
       )
 
-      currentY -= 23
+      currentY -=
+        23
 
       currentY =
         dibujarCampo({
@@ -1144,7 +1142,7 @@ app.post(
         })
 
       /* ===================================================
-         DATOS SOLICITANTE
+         SOLICITANTE
       =================================================== */
 
       page.drawText(
@@ -1171,7 +1169,8 @@ app.post(
         }
       )
 
-      currentY -= 23
+      currentY -=
+        23
 
       currentY =
         dibujarCampo({
@@ -1321,7 +1320,8 @@ app.post(
          DECLARACIÓN
       =================================================== */
 
-      currentY -= 2
+      currentY -=
+        2
 
       page.drawText(
         '3. DECLARACIÓN',
@@ -1347,7 +1347,8 @@ app.post(
         }
       )
 
-      currentY -= 22
+      currentY -=
+        22
 
       const declaracion =
         'Declaro que la información proporcionada en el presente documento es verdadera y corresponde a los datos registrados por el solicitante. Asimismo, autorizo su utilización para los fines administrativos y técnicos relacionados con el proceso correspondiente.'
@@ -1382,12 +1383,15 @@ app.post(
          FIRMA
       =================================================== */
 
-      currentY -= 45
+      currentY -=
+        45
 
       if (
-        currentY < 125
+        currentY <
+        125
       ) {
-        currentY = 125
+        currentY =
+          125
       }
 
       page.drawLine({
@@ -1441,105 +1445,42 @@ app.post(
             7,
         })
 
-      const lineasFirma =
-        dividirTexto({
-          texto:
-            nombreFirma,
-
-          fuente:
-            fuenteNormal,
-
-          fontSize:
-            firmaSize,
-
-          anchoMaximo:
-            220,
-        })
-
-      let firmaY =
-        currentY - 15
-
-      for (
-        const linea
-        of lineasFirma
-      ) {
-        const ancho =
-          fuenteNormal
-            .widthOfTextAtSize(
-              linea,
-              firmaSize
-            )
-
-        page.drawText(
-          linea,
-          {
-            x:
-              (
-                width -
-                ancho
-              ) / 2,
-
-            y:
-              firmaY,
-
-            size:
-              firmaSize,
-
-            font:
-              fuenteNormal,
-
-            color:
-              rgb(
-                0.20,
-                0.20,
-                0.20
-              ),
-          }
-        )
-
-        firmaY -=
-          firmaSize + 2
-      }
-
-      const etiquetaFirma =
-        'Firma del solicitante'
-
-      const anchoEtiqueta =
+      const anchoFirma =
         fuenteNormal
           .widthOfTextAtSize(
-            etiquetaFirma,
-            8
+            nombreFirma,
+            firmaSize
           )
 
       page.drawText(
-        etiquetaFirma,
+        nombreFirma,
         {
           x:
             (
               width -
-              anchoEtiqueta
+              anchoFirma
             ) / 2,
 
           y:
-            firmaY - 2,
+            currentY - 15,
 
           size:
-            8,
+            firmaSize,
 
           font:
             fuenteNormal,
 
           color:
             rgb(
-              0.35,
-              0.35,
-              0.35
+              0.20,
+              0.20,
+              0.20
             ),
         }
       )
 
       /* ===================================================
-         METADATOS
+         PDF
       =================================================== */
 
       pdfDoc.setTitle(
@@ -1553,16 +1494,6 @@ app.post(
       pdfDoc.setSubject(
         'Solicitud de registro de operadora de transporte'
       )
-
-      pdfDoc.setCreator(
-        'Sistema Operadoras de Transporte'
-      )
-
-      /* ===================================================
-         DESCARGA
-
-         El PDF NO se guarda.
-      =================================================== */
 
       const pdfBytes =
         await pdfDoc.save()
@@ -1600,7 +1531,7 @@ app.post(
       error
     ) {
       console.error(
-        'Error general:',
+        'Error generando PDF:',
         error
       )
 
@@ -1641,7 +1572,17 @@ app.use(
         })
     }
 
-    next(err)
+    console.error(
+      'Error no controlado:',
+      err
+    )
+
+    return res
+      .status(500)
+      .json({
+        error:
+          'Error interno del servidor.',
+      })
   }
 )
 
@@ -1664,11 +1605,7 @@ app.use(
 )
 
 /* =========================================================
-   INICIAR SERVIDOR
-
-   Compatible con:
-   - Windows local
-   - Render
+   SERVIDOR
 ========================================================= */
 
 app.listen(
@@ -1676,7 +1613,7 @@ app.listen(
   '0.0.0.0',
   () => {
     console.log(
-      '========================================'
+      '=========================================='
     )
 
     console.log(
@@ -1696,13 +1633,22 @@ app.listen(
     )
 
     console.log(
-      SUPABASE_URL
-        ? 'Supabase configurado ✓'
-        : 'Supabase NO configurado ✗'
+      'Supabase configurado ✓'
     )
 
     console.log(
-      '========================================'
+      `FRONTEND_URL: ${
+        FRONTEND_URL ||
+        'NO CONFIGURADO'
+      }`
+    )
+
+    console.log(
+      'Trust proxy: ACTIVADO ✓'
+    )
+
+    console.log(
+      '=========================================='
     )
   }
 )
