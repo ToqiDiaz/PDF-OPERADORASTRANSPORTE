@@ -3,60 +3,88 @@ import './App.css'
 
 function App() {
   const [formData, setFormData] = useState({
+    compania: '',
+    registro_municipal: '',
+    cedula: '',
     nombres: '',
     apellidos: '',
     licencia: '',
+    correo: '',
+    telefono: '',
   })
 
   const [generando, setGenerando] = useState(false)
   const [mensaje, setMensaje] = useState('')
+  const [tipoMensaje, setTipoMensaje] = useState('')
   const [codigoGenerado, setCodigoGenerado] = useState('')
 
   const handleChange = (e) => {
     const { name, value } = e.target
 
+    let nuevoValor = value
+
+    if (name === 'cedula') {
+      nuevoValor = value.replace(/\D/g, '').slice(0, 10)
+    }
+
+    if (name === 'telefono') {
+      nuevoValor = value.replace(/[^\d+\-\s]/g, '').slice(0, 30)
+    }
+
     setFormData((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: nuevoValor,
     }))
 
     setMensaje('')
+    setTipoMensaje('')
   }
 
   const obtenerNombreArchivo = (response) => {
     const disposition = response.headers.get('content-disposition')
 
     if (!disposition) {
-      return 'Formulario_Operadora.pdf'
+      return 'SOLICITUD_OPERADORA.pdf'
     }
 
     const match = disposition.match(/filename="?([^"]+)"?/)
 
-    if (match && match[1]) {
-      return match[1]
-    }
-
-    return 'Formulario_Operadora.pdf'
-  }
-
-  const obtenerCodigoDesdeNombre = (nombreArchivo) => {
-    return nombreArchivo.replace('.pdf', '')
+    return match?.[1] || 'SOLICITUD_OPERADORA.pdf'
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
 
     setMensaje('')
+    setTipoMensaje('')
     setCodigoGenerado('')
 
-    if (
-      !formData.nombres.trim() ||
-      !formData.apellidos.trim() ||
-      !formData.licencia
-    ) {
-      setMensaje(
-        'Por favor complete todos los campos obligatorios.'
-      )
+    const camposObligatorios = [
+      formData.compania,
+      formData.registro_municipal,
+      formData.cedula,
+      formData.nombres,
+      formData.apellidos,
+      formData.licencia,
+      formData.correo,
+      formData.telefono,
+    ]
+
+    if (camposObligatorios.some((campo) => !campo.trim())) {
+      setMensaje('Por favor complete todos los campos obligatorios.')
+      setTipoMensaje('error')
+      return
+    }
+
+    if (!/^\d{10}$/.test(formData.cedula)) {
+      setMensaje('La cédula debe contener exactamente 10 dígitos.')
+      setTipoMensaje('error')
+      return
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.correo)) {
+      setMensaje('Ingrese un correo electrónico válido.')
+      setTipoMensaje('error')
       return
     }
 
@@ -75,49 +103,38 @@ function App() {
       )
 
       if (!response.ok) {
-        const errorData = await response
-          .json()
-          .catch(() => null)
+        const errorData = await response.json().catch(() => null)
 
         throw new Error(
-          errorData?.error ||
-            'No fue posible generar el documento.'
+          errorData?.error || 'No fue posible generar el documento.'
         )
       }
 
       const nombreArchivo = obtenerNombreArchivo(response)
-
       const blob = await response.blob()
-
       const url = window.URL.createObjectURL(blob)
 
       const enlace = document.createElement('a')
-
       enlace.href = url
       enlace.download = nombreArchivo
 
       document.body.appendChild(enlace)
-
       enlace.click()
       enlace.remove()
 
       window.URL.revokeObjectURL(url)
 
-      const codigo =
-        obtenerCodigoDesdeNombre(nombreArchivo)
-
-      setCodigoGenerado(codigo)
-
-      setMensaje(
-        'Documento generado y descargado correctamente.'
-      )
+      setCodigoGenerado(nombreArchivo.replace('.pdf', ''))
+      setMensaje('Documento generado y descargado correctamente.')
+      setTipoMensaje('success')
     } catch (error) {
       console.error(error)
 
       setMensaje(
-        error.message ||
-          'Ocurrió un problema al generar el PDF.'
+        error.message || 'Ocurrió un problema al generar el documento.'
       )
+
+      setTipoMensaje('error')
     } finally {
       setGenerando(false)
     }
@@ -125,12 +142,18 @@ function App() {
 
   const limpiarFormulario = () => {
     setFormData({
+      compania: '',
+      registro_municipal: '',
+      cedula: '',
       nombres: '',
       apellidos: '',
       licencia: '',
+      correo: '',
+      telefono: '',
     })
 
     setMensaje('')
+    setTipoMensaje('')
     setCodigoGenerado('')
   }
 
@@ -145,21 +168,79 @@ function App() {
               MUNICIPIO DEL DISTRITO METROPOLITANO DE QUITO
             </div>
 
-            <h1>
-              Formulario de Operadoras de Transporte
-            </h1>
+            <h1>Formulario de Operadoras de Transporte</h1>
 
             <p>
-              Complete la información solicitada.
-              Una vez validada, el sistema generará
-              automáticamente el documento PDF.
+              Complete la información solicitada. Una vez validada, el sistema
+              registrará la solicitud y generará automáticamente el documento
+              PDF para su descarga.
             </p>
           </header>
 
           <form onSubmit={handleSubmit}>
             <h2 className="section-title">
+              Datos de la operadora
+            </h2>
+
+            <div className="field">
+              <label htmlFor="compania">
+                Nombre de la compañía / operadora
+                <span className="required"> *</span>
+              </label>
+
+              <input
+                id="compania"
+                name="compania"
+                type="text"
+                value={formData.compania}
+                onChange={handleChange}
+                placeholder="Ej. Compañía de Transporte Ejemplo S.A."
+                maxLength={200}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="registro_municipal">
+                Registro Municipal
+                <span className="required"> *</span>
+              </label>
+
+              <input
+                id="registro_municipal"
+                name="registro_municipal"
+                type="text"
+                value={formData.registro_municipal}
+                onChange={handleChange}
+                placeholder="Ingrese el número de Registro Municipal"
+                maxLength={100}
+              />
+            </div>
+
+            <h2 className="section-title">
               Datos del solicitante
             </h2>
+
+            <div className="field">
+              <label htmlFor="cedula">
+                Número de cédula
+                <span className="required"> *</span>
+              </label>
+
+              <input
+                id="cedula"
+                name="cedula"
+                type="text"
+                inputMode="numeric"
+                value={formData.cedula}
+                onChange={handleChange}
+                placeholder="Ej. 1712345678"
+                maxLength={10}
+              />
+
+              <small className="field-help">
+                Ingrese exactamente 10 dígitos.
+              </small>
+            </div>
 
             <div className="field">
               <label htmlFor="nombres">
@@ -174,7 +255,7 @@ function App() {
                 value={formData.nombres}
                 onChange={handleChange}
                 placeholder="Ingrese sus nombres completos"
-                maxLength={100}
+                maxLength={150}
                 autoComplete="given-name"
               />
             </div>
@@ -192,7 +273,7 @@ function App() {
                 value={formData.apellidos}
                 onChange={handleChange}
                 placeholder="Ingrese sus apellidos completos"
-                maxLength={100}
+                maxLength={150}
                 autoComplete="family-name"
               />
             </div>
@@ -205,26 +286,65 @@ function App() {
 
               <div className="license-options">
                 {['A', 'B', 'C', 'D'].map((tipo) => (
-                  <label
-                    className="radio-option"
-                    key={tipo}
-                  >
+                  <label className="radio-option" key={tipo}>
                     <input
                       type="radio"
                       name="licencia"
                       value={tipo}
-                      checked={
-                        formData.licencia === tipo
-                      }
+                      checked={formData.licencia === tipo}
                       onChange={handleChange}
                     />
 
-                    <span>
-                      Licencia tipo {tipo}
-                    </span>
+                    <span>Licencia tipo {tipo}</span>
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="correo">
+                Correo electrónico
+                <span className="required"> *</span>
+              </label>
+
+              <input
+                id="correo"
+                name="correo"
+                type="email"
+                value={formData.correo}
+                onChange={handleChange}
+                placeholder="Ej. responsable@operadora.com"
+                maxLength={200}
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="telefono">
+                Teléfono de contacto
+                <span className="required"> *</span>
+              </label>
+
+              <input
+                id="telefono"
+                name="telefono"
+                type="tel"
+                value={formData.telefono}
+                onChange={handleChange}
+                placeholder="Ej. 0999999999"
+                maxLength={30}
+                autoComplete="tel"
+              />
+            </div>
+
+            <div className="declaration-box">
+              <strong>Declaración</strong>
+
+              <p>
+                Declaro que la información proporcionada en este formulario es
+                verdadera y corresponde a los datos registrados por la
+                operadora y el solicitante.
+              </p>
             </div>
 
             <button
@@ -233,7 +353,7 @@ function App() {
               disabled={generando}
             >
               {generando
-                ? 'Generando documento...'
+                ? 'Registrando y generando documento...'
                 : 'Generar y descargar PDF'}
             </button>
           </form>
@@ -241,7 +361,7 @@ function App() {
           {mensaje && (
             <div
               className={
-                codigoGenerado
+                tipoMensaje === 'success'
                   ? 'success-box'
                   : 'message-box'
               }
@@ -250,9 +370,7 @@ function App() {
 
               {codigoGenerado && (
                 <>
-                  <p>
-                    Código del documento:
-                  </p>
+                  <p>Documento generado:</p>
 
                   <div className="document-code">
                     {codigoGenerado}
@@ -263,7 +381,7 @@ function App() {
                     className="secondary-button"
                     onClick={limpiarFormulario}
                   >
-                    Generar otro formulario
+                    Registrar otra solicitud
                   </button>
                 </>
               )}
@@ -271,18 +389,14 @@ function App() {
           )}
 
           <div className="security-note">
-            <strong>
-              Protección de información:
-            </strong>{' '}
-            Los datos ingresados se utilizan
-            únicamente durante la generación
-            del documento y no se almacenan
-            en esta versión del sistema.
+            <strong>Protección de información:</strong>{' '}
+            Los datos registrados serán utilizados para la gestión de la
+            solicitud. El archivo PDF se genera únicamente para descarga y no
+            se almacena permanentemente en esta versión del sistema.
           </div>
 
           <div className="footer-form">
-            Secretaría de Movilidad ·
-            Distrito Metropolitano de Quito
+            Secretaría de Movilidad · Distrito Metropolitano de Quito
           </div>
         </div>
       </div>

@@ -264,3 +264,47 @@ input {
   opacity: 0.65;
   cursor: not-allowed;
 }
+.field-help {
+  display: block;
+  margin-top: 7px;
+  color: #6c7a83;
+  font-size: 12px;
+}
+
+.declaration-box {
+  margin: 10px 0 25px;
+  padding: 18px;
+  background: #f3f8fa;
+  border-left: 4px solid #00a6a6;
+  border-radius: 6px;
+  color: #394852;
+  line-height: 1.6;
+}
+
+.declaration-box strong {
+  color: #003b5c;
+}
+
+.declaration-box p {
+  margin: 7px 0 0;
+  font-size: 13px;
+}
+
+input[type='email'],
+input[type='tel'] {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #becbd2;
+  border-radius: 7px;
+  padding: 12px 14px;
+  background: #ffffff;
+  color: #1f2933;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+input[type='email']:focus,
+input[type='tel']:focus {
+  border-color: #00a6a6;
+  box-shadow: 0 0 0 3px rgba(0, 166, 166, 0.13);
+}

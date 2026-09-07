@@ -1,3 +1,5 @@
+require('dotenv').config()
+
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')
@@ -11,71 +13,232 @@ const {
   rgb,
 } = require('pdf-lib')
 
+const {
+  createClient,
+} = require('@supabase/supabase-js')
+
+/* =========================================================
+   CONFIGURACIÓN GENERAL
+========================================================= */
+
 const app = express()
-const PORT = 3001
+
+// Render asignará automáticamente PORT.
+// Localmente seguirá usando 3001.
+const PORT = process.env.PORT || 3001
+
+/* =========================================================
+   VARIABLES DE ENTORNO
+========================================================= */
+
+const SUPABASE_URL =
+  process.env.SUPABASE_URL
+
+const SUPABASE_SECRET_KEY =
+  process.env.SUPABASE_SECRET_KEY
+
+if (
+  !SUPABASE_URL ||
+  !SUPABASE_SECRET_KEY
+) {
+  console.error(
+    'ERROR: faltan SUPABASE_URL o SUPABASE_SECRET_KEY.'
+  )
+
+  process.exit(1)
+}
+
+/* =========================================================
+   CONEXIÓN SUPABASE
+========================================================= */
+
+const supabase = createClient(
+  SUPABASE_URL,
+  SUPABASE_SECRET_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
+)
+
+/* =========================================================
+   CORS
+
+   Por ahora permite:
+   - React local
+   - La URL pública que después pondremos en FRONTEND_URL
+========================================================= */
+
+const origenesPermitidos = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+]
+
+if (process.env.FRONTEND_URL) {
+  origenesPermitidos.push(
+    process.env.FRONTEND_URL
+  )
+}
+
+app.use(
+  cors({
+    origin: function (
+      origin,
+      callback
+    ) {
+      // Permite llamadas sin Origin
+      // como Render Health Check.
+      if (!origin) {
+        return callback(
+          null,
+          true
+        )
+      }
+
+      if (
+        origenesPermitidos.includes(
+          origin
+        )
+      ) {
+        return callback(
+          null,
+          true
+        )
+      }
+
+      console.warn(
+        'Origen bloqueado por CORS:',
+        origin
+      )
+
+      return callback(
+        new Error(
+          'Origen no permitido por CORS'
+        )
+      )
+    },
+
+    methods: [
+      'GET',
+      'POST',
+      'OPTIONS',
+    ],
+
+    allowedHeaders: [
+      'Content-Type',
+    ],
+
+    exposedHeaders: [
+      'Content-Disposition',
+    ],
+  })
+)
 
 /* =========================================================
    SEGURIDAD
 ========================================================= */
 
-app.use(helmet())
-
 app.use(
-  cors({
-    origin: 'http://localhost:5173',
-    methods: ['GET', 'POST'],
-    exposedHeaders: ['Content-Disposition'],
+  helmet({
+    crossOriginResourcePolicy: false,
   })
 )
 
-app.use(express.json({ limit: '30kb' }))
+app.use(
+  express.json({
+    limit: '30kb',
+  })
+)
 
 const limiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs:
+    60 * 1000,
+
   max: 20,
+
   standardHeaders: true,
+
   legacyHeaders: false,
+
+  message: {
+    error:
+      'Demasiadas solicitudes. Intente nuevamente en unos minutos.',
+  },
 })
 
-app.use('/api', limiter)
+app.use(
+  '/api',
+  limiter
+)
 
 /* =========================================================
-   RUTA DE LA PLANTILLA
+   PLANTILLA PDF
+
+   Debe existir aquí:
+
+   backend/
+      plantillas/
+         TESTplantilla_operadoras.pdf
 ========================================================= */
 
-const TEMPLATE_PATH = path.join(
-  __dirname,
-  '..',
-  'plantillas',
-  'TESTplantilla_operadoras.pdf'
-)
+const TEMPLATE_PATH =
+  path.join(
+    __dirname,
+    'plantillas',
+    'TESTplantilla_operadoras.pdf'
+  )
 
 /* =========================================================
    FUNCIONES AUXILIARES
 ========================================================= */
 
-function limpiarTexto(valor, maxLength = 200) {
-  if (typeof valor !== 'string') {
+function limpiarTexto(
+  valor,
+  maxLength = 200
+) {
+  if (
+    typeof valor !==
+    'string'
+  ) {
     return ''
   }
 
   return valor
     .trim()
-    .replace(/[<>]/g, '')
-    .replace(/\s+/g, ' ')
-    .slice(0, maxLength)
+    .replace(
+      /[<>]/g,
+      ''
+    )
+    .replace(
+      /\s+/g,
+      ' '
+    )
+    .slice(
+      0,
+      maxLength
+    )
 }
 
-function generarCodigo() {
-  const ahora = new Date()
-  const year = ahora.getFullYear()
+/* =========================================================
+   CONSECUTIVO
+========================================================= */
 
-  const random = Math.floor(
-    1000 + Math.random() * 9000
+function rellenarNumero(
+  numero
+) {
+  return String(
+    numero
+  ).padStart(
+    6,
+    '0'
   )
-
-  return `IT-SM-DMITM-${year}-${random}`
 }
+
+/* =========================================================
+   DIVIDIR TEXTO
+========================================================= */
 
 function dividirTexto({
   texto,
@@ -83,16 +246,21 @@ function dividirTexto({
   fontSize,
   anchoMaximo,
 }) {
-  const palabras = texto.split(' ')
+  const palabras =
+    texto.split(' ')
+
   const lineas = []
 
   let lineaActual = ''
 
-  for (const palabra of palabras) {
+  for (
+    const palabra
+    of palabras
+  ) {
     const prueba =
-      lineaActual.length === 0
-        ? palabra
-        : `${lineaActual} ${palabra}`
+      lineaActual
+        ? `${lineaActual} ${palabra}`
+        : palabra
 
     const ancho =
       fuente.widthOfTextAtSize(
@@ -100,23 +268,40 @@ function dividirTexto({
         fontSize
       )
 
-    if (ancho <= anchoMaximo) {
-      lineaActual = prueba
+    if (
+      ancho <=
+      anchoMaximo
+    ) {
+      lineaActual =
+        prueba
     } else {
-      if (lineaActual) {
-        lineas.push(lineaActual)
+      if (
+        lineaActual
+      ) {
+        lineas.push(
+          lineaActual
+        )
       }
 
-      lineaActual = palabra
+      lineaActual =
+        palabra
     }
   }
 
-  if (lineaActual) {
-    lineas.push(lineaActual)
+  if (
+    lineaActual
+  ) {
+    lineas.push(
+      lineaActual
+    )
   }
 
   return lineas
 }
+
+/* =========================================================
+   TAMAÑO AUTOMÁTICO
+========================================================= */
 
 function calcularTamanoFuente({
   texto,
@@ -125,16 +310,23 @@ function calcularTamanoFuente({
   maxFontSize = 11,
   minFontSize = 8,
 }) {
-  let size = maxFontSize
+  let size =
+    maxFontSize
 
-  while (size > minFontSize) {
+  while (
+    size >
+    minFontSize
+  ) {
     const ancho =
       fuente.widthOfTextAtSize(
         texto,
         size
       )
 
-    if (ancho <= anchoMaximo) {
+    if (
+      ancho <=
+      anchoMaximo
+    ) {
       return size
     }
 
@@ -144,6 +336,10 @@ function calcularTamanoFuente({
   return minFontSize
 }
 
+/* =========================================================
+   PÁRRAFOS
+========================================================= */
+
 function dibujarParrafo({
   page,
   texto,
@@ -152,32 +348,51 @@ function dibujarParrafo({
   x,
   y,
   anchoMaximo,
-  lineHeight = 14,
-  color = rgb(0.15, 0.15, 0.15),
+  lineHeight = 13,
+  color = rgb(
+    0.15,
+    0.15,
+    0.15
+  ),
 }) {
-  const lineas = dividirTexto({
-    texto,
-    fuente,
-    fontSize,
-    anchoMaximo,
-  })
+  const lineas =
+    dividirTexto({
+      texto,
+      fuente,
+      fontSize,
+      anchoMaximo,
+    })
 
   let posicionY = y
 
-  for (const linea of lineas) {
-    page.drawText(linea, {
-      x,
-      y: posicionY,
-      size: fontSize,
-      font: fuente,
-      color,
-    })
+  for (
+    const linea
+    of lineas
+  ) {
+    page.drawText(
+      linea,
+      {
+        x,
+        y:
+          posicionY,
+        size:
+          fontSize,
+        font:
+          fuente,
+        color,
+      }
+    )
 
-    posicionY -= lineHeight
+    posicionY -=
+      lineHeight
   }
 
   return posicionY
 }
+
+/* =========================================================
+   CAMPOS
+========================================================= */
 
 function dibujarCampo({
   page,
@@ -189,88 +404,177 @@ function dibujarCampo({
   y,
   anchoTotal,
 }) {
-  page.drawText(etiqueta, {
-    x,
-    y,
-    size: 9,
-    font: fuenteBold,
-    color: rgb(0.05, 0.22, 0.35),
-  })
+  page.drawText(
+    etiqueta,
+    {
+      x,
+      y,
+      size: 9,
+      font:
+        fuenteBold,
+      color: rgb(
+        0.05,
+        0.22,
+        0.35
+      ),
+    }
+  )
 
-  const yValor = y - 17
+  let posicionY =
+    y - 17
 
-  const size =
+  const fontSize =
     calcularTamanoFuente({
-      texto: valor,
-      fuente: fuenteNormal,
-      anchoMaximo: anchoTotal,
-      maxFontSize: 11,
-      minFontSize: 8,
+      texto:
+        valor,
+      fuente:
+        fuenteNormal,
+      anchoMaximo:
+        anchoTotal,
+      maxFontSize:
+        10.5,
+      minFontSize:
+        7.5,
     })
 
   const lineas =
     dividirTexto({
-      texto: valor,
-      fuente: fuenteNormal,
-      fontSize: size,
-      anchoMaximo: anchoTotal,
+      texto:
+        valor,
+      fuente:
+        fuenteNormal,
+      fontSize,
+      anchoMaximo:
+        anchoTotal,
     })
 
-  let posicionY = yValor
+  for (
+    const linea
+    of lineas
+  ) {
+    page.drawText(
+      linea,
+      {
+        x,
+        y:
+          posicionY,
+        size:
+          fontSize,
+        font:
+          fuenteNormal,
+        color: rgb(
+          0.12,
+          0.12,
+          0.12
+        ),
+      }
+    )
 
-  for (const linea of lineas) {
-    page.drawText(linea, {
-      x,
-      y: posicionY,
-      size,
-      font: fuenteNormal,
-      color: rgb(0.12, 0.12, 0.12),
-    })
-
-    posicionY -= size + 4
+    posicionY -=
+      fontSize + 3
   }
 
-  return posicionY - 15
+  return (
+    posicionY - 12
+  )
 }
 
 /* =========================================================
    RUTA PRINCIPAL
 ========================================================= */
 
-app.get('/', (req, res) => {
-  const plantillaExiste =
-    fs.existsSync(TEMPLATE_PATH)
+app.get(
+  '/',
+  async (
+    req,
+    res
+  ) => {
+    const plantillaExiste =
+      fs.existsSync(
+        TEMPLATE_PATH
+      )
 
-  res.send(`
-    <html>
+    let supabaseOk =
+      false
+
+    try {
+      const {
+        error,
+      } =
+        await supabase
+          .from(
+            'solicitudes'
+          )
+          .select(
+            'id'
+          )
+          .limit(
+            1
+          )
+
+      supabaseOk =
+        !error
+    } catch (
+      error
+    ) {
+      console.error(
+        error
+      )
+
+      supabaseOk =
+        false
+    }
+
+    res.send(`
+      <!doctype html>
+
+      <html lang="es">
+
       <head>
-        <title>Servidor PDF Operadoras</title>
+
+        <meta charset="UTF-8">
+
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1"
+        >
+
+        <title>
+          Sistema Operadoras
+        </title>
+
       </head>
 
-      <body style="
-        font-family: Arial, sans-serif;
-        background:#f4f6f8;
-        padding:40px;
-      ">
+      <body
+        style="
+          font-family:Arial,sans-serif;
+          background:#f4f6f8;
+          padding:40px;
+        "
+      >
 
-        <div style="
-          max-width:700px;
-          margin:auto;
-          background:white;
-          padding:30px;
-          border-radius:12px;
-          box-shadow:0 8px 25px rgba(0,0,0,.08);
-        ">
+        <div
+          style="
+            max-width:700px;
+            margin:auto;
+            background:#ffffff;
+            padding:30px;
+            border-radius:12px;
+            box-shadow:0 8px 25px rgba(0,0,0,.08);
+          "
+        >
 
-          <h2 style="
-            color:#003B5C;
-            margin-top:0;
-          ">
-            Servidor PDF Operadoras
+          <h2
+            style="
+              color:#003B5C;
+              margin-top:0;
+            "
+          >
+            Sistema Operadoras de Transporte
           </h2>
 
           <p>
-            Estado del servidor:
+            Backend:
             <strong style="color:green;">
               FUNCIONANDO
             </strong>
@@ -278,28 +582,46 @@ app.get('/', (req, res) => {
 
           <p>
             Plantilla institucional:
-            <strong style="
-              color:${plantillaExiste ? 'green' : 'red'};
-            ">
-              ${plantillaExiste ? 'ENCONTRADA' : 'NO ENCONTRADA'}
+            <strong
+              style="
+                color:${
+                  plantillaExiste
+                    ? 'green'
+                    : 'red'
+                };
+              "
+            >
+              ${
+                plantillaExiste
+                  ? 'ENCONTRADA'
+                  : 'NO ENCONTRADA'
+              }
             </strong>
           </p>
 
           <p>
-            Ruta utilizada:
+            Supabase:
+            <strong
+              style="
+                color:${
+                  supabaseOk
+                    ? 'green'
+                    : 'red'
+                };
+              "
+            >
+              ${
+                supabaseOk
+                  ? 'CONECTADO'
+                  : 'ERROR'
+              }
+            </strong>
           </p>
 
-          <code style="
-            display:block;
-            background:#f3f3f3;
-            padding:12px;
-            border-radius:6px;
-          ">
-            ${TEMPLATE_PATH}
-          </code>
+          <hr>
 
-          <p style="margin-top:20px;">
-            Endpoint disponible:
+          <p>
+            API:
           </p>
 
           <code>
@@ -309,26 +631,65 @@ app.get('/', (req, res) => {
         </div>
 
       </body>
-    </html>
-  `)
-})
+
+      </html>
+    `)
+  }
+)
 
 /* =========================================================
-   STATUS
+   HEALTH CHECK PARA RENDER
 ========================================================= */
 
-app.get('/api/status', (req, res) => {
-  res.json({
-    estado: 'OK',
-    servicio: 'Generador PDF Operadoras',
-    plantilla:
-      fs.existsSync(TEMPLATE_PATH)
-        ? 'encontrada'
-        : 'no encontrada',
-    rutaPlantilla: TEMPLATE_PATH,
-    fecha: new Date().toISOString(),
-  })
-})
+app.get(
+  '/healthz',
+  (
+    req,
+    res
+  ) => {
+    res
+      .status(200)
+      .json({
+        status:
+          'ok',
+
+        servicio:
+          'PDF Operadoras',
+
+        fecha:
+          new Date()
+            .toISOString(),
+      })
+  }
+)
+
+/* =========================================================
+   ESTADO API
+========================================================= */
+
+app.get(
+  '/api/status',
+  (
+    req,
+    res
+  ) => {
+    res.json({
+      estado:
+        'OK',
+
+      plantilla:
+        fs.existsSync(
+          TEMPLATE_PATH
+        )
+          ? 'encontrada'
+          : 'no encontrada',
+
+      fecha:
+        new Date()
+          .toISOString(),
+    })
+  }
+)
 
 /* =========================================================
    GENERAR PDF
@@ -336,78 +697,232 @@ app.get('/api/status', (req, res) => {
 
 app.post(
   '/api/generar-pdf',
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
-      /* ===================================================
-         DATOS DEL FORMULARIO
-      =================================================== */
-
-      const nombres = limpiarTexto(
-        req.body.nombres,
-        150
-      )
-
-      const apellidos = limpiarTexto(
-        req.body.apellidos,
-        150
-      )
-
-      const licencia = limpiarTexto(
-        req.body.licencia,
-        2
-      )
 
       /* ===================================================
-         VALIDACIONES
+         RECIBIR DATOS
       =================================================== */
 
-      if (!nombres) {
-        return res.status(400).json({
-          error:
-            'Debe ingresar los nombres completos.',
-        })
-      }
+      const compania =
+        limpiarTexto(
+          req.body.compania,
+          200
+        )
 
-      if (!apellidos) {
-        return res.status(400).json({
-          error:
-            'Debe ingresar los apellidos completos.',
-        })
-      }
+      const registroMunicipal =
+        limpiarTexto(
+          req.body.registro_municipal,
+          100
+        )
+
+      const cedula =
+        limpiarTexto(
+          req.body.cedula,
+          10
+        )
+
+      const nombres =
+        limpiarTexto(
+          req.body.nombres,
+          150
+        )
+
+      const apellidos =
+        limpiarTexto(
+          req.body.apellidos,
+          150
+        )
+
+      const licencia =
+        limpiarTexto(
+          req.body.licencia,
+          2
+        )
+
+      const correo =
+        limpiarTexto(
+          req.body.correo,
+          200
+        )
+
+      const telefono =
+        limpiarTexto(
+          req.body.telefono,
+          30
+        )
+
+      /* ===================================================
+         CAMPOS OBLIGATORIOS
+      =================================================== */
 
       if (
-        !['A', 'B', 'C', 'D'].includes(
+        !compania ||
+        !registroMunicipal ||
+        !cedula ||
+        !nombres ||
+        !apellidos ||
+        !licencia ||
+        !correo ||
+        !telefono
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              'Todos los campos son obligatorios.',
+          })
+      }
+
+      /* ===================================================
+         VALIDAR CÉDULA
+      =================================================== */
+
+      if (
+        !/^\d{10}$/.test(
+          cedula
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              'La cédula debe contener exactamente 10 dígitos.',
+          })
+      }
+
+      /* ===================================================
+         VALIDAR LICENCIA
+      =================================================== */
+
+      if (
+        ![
+          'A',
+          'B',
+          'C',
+          'D',
+        ].includes(
           licencia
         )
       ) {
-        return res.status(400).json({
-          error:
-            'Debe seleccionar un tipo de licencia válido.',
-        })
+        return res
+          .status(400)
+          .json({
+            error:
+              'Tipo de licencia no válido.',
+          })
       }
 
       /* ===================================================
-         VALIDAR EXISTENCIA DE PLANTILLA
+         VALIDAR CORREO
       =================================================== */
 
-      if (!fs.existsSync(TEMPLATE_PATH)) {
+      const regexCorreo =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+      if (
+        !regexCorreo.test(
+          correo
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              'Correo electrónico no válido.',
+          })
+      }
+
+      /* ===================================================
+         REGISTRAR EN SUPABASE
+      =================================================== */
+
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            'solicitudes'
+          )
+          .insert([
+            {
+              compania,
+
+              registro_municipal:
+                registroMunicipal,
+
+              cedula,
+
+              nombres,
+
+              apellidos,
+
+              licencia,
+
+              correo,
+
+              telefono,
+            },
+          ])
+          .select(
+            'id'
+          )
+          .single()
+
+      if (
+        error
+      ) {
+        console.error(
+          'Error Supabase:',
+          error
+        )
+
+        return res
+          .status(500)
+          .json({
+            error:
+              'No fue posible registrar la solicitud.',
+          })
+      }
+
+      const id =
+        data.id
+
+      const consecutivo =
+        rellenarNumero(
+          id
+        )
+
+      /* ===================================================
+         PLANTILLA
+      =================================================== */
+
+      if (
+        !fs.existsSync(
+          TEMPLATE_PATH
+        )
+      ) {
         console.error(
           'Plantilla no encontrada:',
           TEMPLATE_PATH
         )
 
-        return res.status(500).json({
-          error:
-            'No se encontró la plantilla institucional.',
-        })
+        return res
+          .status(500)
+          .json({
+            error:
+              'No se encontró la plantilla institucional.',
+          })
       }
 
-      /* ===================================================
-         LEER PLANTILLA
-      =================================================== */
-
       const plantillaBytes =
-        fs.readFileSync(TEMPLATE_PATH)
+        fs.readFileSync(
+          TEMPLATE_PATH
+        )
 
       const pdfDoc =
         await PDFDocument.load(
@@ -417,12 +932,14 @@ app.post(
       const pages =
         pdfDoc.getPages()
 
-      const page = pages[0]
+      const page =
+        pages[0]
 
       const {
         width,
         height,
-      } = page.getSize()
+      } =
+        page.getSize()
 
       /* ===================================================
          FUENTES
@@ -439,41 +956,6 @@ app.post(
         )
 
       /* ===================================================
-         CÓDIGO
-      =================================================== */
-
-      const codigo = generarCodigo()
-
-      /* ===================================================
-         CÓDIGO EN CAJA SUPERIOR DERECHA
-      =================================================== */
-
-      const codigoSize =
-        calcularTamanoFuente({
-          texto: codigo,
-          fuente: fuenteBold,
-          anchoMaximo: 90,
-          maxFontSize: 7,
-          minFontSize: 5.5,
-        })
-
-      const anchoCodigo =
-        fuenteBold.widthOfTextAtSize(
-          codigo,
-          codigoSize
-        )
-
-      page.drawText(codigo, {
-        x:
-          width - 88 - anchoCodigo / 2,
-        y:
-          height - 73,
-        size: codigoSize,
-        font: fuenteBold,
-        color: rgb(0.08, 0.08, 0.08),
-      })
-
-      /* ===================================================
          TÍTULO
       =================================================== */
 
@@ -482,98 +964,259 @@ app.post(
 
       const tituloLineas =
         dividirTexto({
-          texto: titulo,
-          fuente: fuenteBold,
-          fontSize: 11.5,
-          anchoMaximo: 390,
+          texto:
+            titulo,
+
+          fuente:
+            fuenteBold,
+
+          fontSize:
+            11.5,
+
+          anchoMaximo:
+            390,
         })
 
       let tituloY =
         height - 130
 
-      for (const linea of tituloLineas) {
+      for (
+        const linea
+        of tituloLineas
+      ) {
         const ancho =
-          fuenteBold.widthOfTextAtSize(
-            linea,
-            11.5
-          )
+          fuenteBold
+            .widthOfTextAtSize(
+              linea,
+              11.5
+            )
 
-        page.drawText(linea, {
-          x:
-            (width - ancho) / 2,
-          y: tituloY,
-          size: 11.5,
-          font: fuenteBold,
-          color: rgb(
-            0.08,
-            0.08,
-            0.08
-          ),
-        })
+        page.drawText(
+          linea,
+          {
+            x:
+              (
+                width -
+                ancho
+              ) / 2,
+
+            y:
+              tituloY,
+
+            size:
+              11.5,
+
+            font:
+              fuenteBold,
+
+            color:
+              rgb(
+                0.08,
+                0.08,
+                0.08
+              ),
+          }
+        )
 
         tituloY -= 15
       }
 
       /* ===================================================
-         CUERPO PRINCIPAL
+         CUERPO
       =================================================== */
 
       let currentY =
-        tituloY - 28
+        tituloY - 26
 
-      const margenIzquierdo = 85
+      const margenIzquierdo =
+        85
+
       const anchoContenido =
         width - 170
 
       const introduccion =
-        'Por medio del presente, el/la solicitante registra la información correspondiente para iniciar el proceso de revisión de datos asociados a la operadora de transporte. La información consignada en este documento ha sido proporcionada mediante el formulario electrónico habilitado por la Secretaría de Movilidad y será utilizada para los fines administrativos y técnicos correspondientes.'
+        'Por medio del presente, se registra la información correspondiente a la operadora de transporte y a la persona responsable que realiza la presente solicitud. La información consignada ha sido proporcionada mediante el formulario electrónico habilitado para el proceso correspondiente.'
 
       currentY =
         dibujarParrafo({
           page,
-          texto: introduccion,
-          fuente: fuenteNormal,
-          fontSize: 9.3,
-          x: margenIzquierdo,
-          y: currentY,
+
+          texto:
+            introduccion,
+
+          fuente:
+            fuenteNormal,
+
+          fontSize:
+            9.2,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
           anchoMaximo:
             anchoContenido,
-          lineHeight: 13,
+
+          lineHeight:
+            12.5,
         })
 
-      currentY -= 22
+      currentY -= 18
 
       /* ===================================================
-         SECCIÓN 1
+         DATOS OPERADORA
       =================================================== */
 
       page.drawText(
-        '1. DATOS DEL SOLICITANTE',
+        '1. DATOS DE LA OPERADORA',
         {
-          x: margenIzquierdo,
-          y: currentY,
-          size: 10,
-          font: fuenteBold,
-          color: rgb(
-            0.05,
-            0.22,
-            0.35
-          ),
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          size:
+            10,
+
+          font:
+            fuenteBold,
+
+          color:
+            rgb(
+              0.05,
+              0.22,
+              0.35
+            ),
         }
       )
 
-      currentY -= 25
+      currentY -= 23
 
       currentY =
         dibujarCampo({
           page,
+
+          etiqueta:
+            'Nombre de la compañía',
+
+          valor:
+            compania,
+
+          fuenteNormal,
+
+          fuenteBold,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          anchoTotal:
+            anchoContenido,
+        })
+
+      currentY =
+        dibujarCampo({
+          page,
+
+          etiqueta:
+            'Registro Municipal',
+
+          valor:
+            registroMunicipal,
+
+          fuenteNormal,
+
+          fuenteBold,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          anchoTotal:
+            anchoContenido,
+        })
+
+      /* ===================================================
+         DATOS SOLICITANTE
+      =================================================== */
+
+      page.drawText(
+        '2. DATOS DEL SOLICITANTE',
+        {
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          size:
+            10,
+
+          font:
+            fuenteBold,
+
+          color:
+            rgb(
+              0.05,
+              0.22,
+              0.35
+            ),
+        }
+      )
+
+      currentY -= 23
+
+      currentY =
+        dibujarCampo({
+          page,
+
+          etiqueta:
+            'Número de cédula',
+
+          valor:
+            cedula,
+
+          fuenteNormal,
+
+          fuenteBold,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          anchoTotal:
+            anchoContenido,
+        })
+
+      currentY =
+        dibujarCampo({
+          page,
+
           etiqueta:
             'Nombres completos',
-          valor: nombres,
+
+          valor:
+            nombres,
+
           fuenteNormal,
+
           fuenteBold,
-          x: margenIzquierdo,
-          y: currentY,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
           anchoTotal:
             anchoContenido,
         })
@@ -581,13 +1224,23 @@ app.post(
       currentY =
         dibujarCampo({
           page,
+
           etiqueta:
             'Apellidos completos',
-          valor: apellidos,
+
+          valor:
+            apellidos,
+
           fuenteNormal,
+
           fuenteBold,
-          x: margenIzquierdo,
-          y: currentY,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
           anchoTotal:
             anchoContenido,
         })
@@ -595,40 +1248,106 @@ app.post(
       currentY =
         dibujarCampo({
           page,
+
           etiqueta:
             'Tipo de licencia',
+
           valor:
             `Licencia tipo ${licencia}`,
+
           fuenteNormal,
+
           fuenteBold,
-          x: margenIzquierdo,
-          y: currentY,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          anchoTotal:
+            anchoContenido,
+        })
+
+      currentY =
+        dibujarCampo({
+          page,
+
+          etiqueta:
+            'Correo electrónico',
+
+          valor:
+            correo,
+
+          fuenteNormal,
+
+          fuenteBold,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          anchoTotal:
+            anchoContenido,
+        })
+
+      currentY =
+        dibujarCampo({
+          page,
+
+          etiqueta:
+            'Teléfono',
+
+          valor:
+            telefono,
+
+          fuenteNormal,
+
+          fuenteBold,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
           anchoTotal:
             anchoContenido,
         })
 
       /* ===================================================
-         SECCIÓN 2
+         DECLARACIÓN
       =================================================== */
 
-      currentY -= 5
+      currentY -= 2
 
       page.drawText(
-        '2. DECLARACIÓN',
+        '3. DECLARACIÓN',
         {
-          x: margenIzquierdo,
-          y: currentY,
-          size: 10,
-          font: fuenteBold,
-          color: rgb(
-            0.05,
-            0.22,
-            0.35
-          ),
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
+          size:
+            10,
+
+          font:
+            fuenteBold,
+
+          color:
+            rgb(
+              0.05,
+              0.22,
+              0.35
+            ),
         }
       )
 
-      currentY -= 25
+      currentY -= 22
 
       const declaracion =
         'Declaro que la información proporcionada en el presente documento es verdadera y corresponde a los datos registrados por el solicitante. Asimismo, autorizo su utilización para los fines administrativos y técnicos relacionados con el proceso correspondiente.'
@@ -636,69 +1355,69 @@ app.post(
       currentY =
         dibujarParrafo({
           page,
-          texto: declaracion,
-          fuente: fuenteNormal,
-          fontSize: 9.3,
-          x: margenIzquierdo,
-          y: currentY,
+
+          texto:
+            declaracion,
+
+          fuente:
+            fuenteNormal,
+
+          fontSize:
+            9,
+
+          x:
+            margenIzquierdo,
+
+          y:
+            currentY,
+
           anchoMaximo:
             anchoContenido,
-          lineHeight: 13,
-        })
 
-      /* ===================================================
-         TEXTO FINAL
-      =================================================== */
-
-      currentY -= 18
-
-      const textoFinal =
-        'Para constancia de la información registrada, el/la solicitante suscribe el presente documento.'
-
-      currentY =
-        dibujarParrafo({
-          page,
-          texto: textoFinal,
-          fuente: fuenteNormal,
-          fontSize: 9.3,
-          x: margenIzquierdo,
-          y: currentY,
-          anchoMaximo:
-            anchoContenido,
-          lineHeight: 13,
+          lineHeight:
+            12,
         })
 
       /* ===================================================
          FIRMA
       =================================================== */
 
-      currentY -= 55
+      currentY -= 45
 
-      if (currentY < 125) {
+      if (
+        currentY < 125
+      ) {
         currentY = 125
       }
 
-      const lineaInicio =
-        width / 2 - 110
-
-      const lineaFin =
-        width / 2 + 110
-
       page.drawLine({
         start: {
-          x: lineaInicio,
-          y: currentY,
+          x:
+            width / 2 -
+            110,
+
+          y:
+            currentY,
         },
+
         end: {
-          x: lineaFin,
-          y: currentY,
+          x:
+            width / 2 +
+            110,
+
+          y:
+            currentY,
         },
-        thickness: 0.7,
-        color: rgb(
-          0.35,
-          0.35,
-          0.35
-        ),
+
+        thickness:
+          0.7,
+
+        color:
+          rgb(
+            0.35,
+            0.35,
+            0.35
+          ),
       })
 
       const nombreFirma =
@@ -706,26 +1425,43 @@ app.post(
 
       const firmaSize =
         calcularTamanoFuente({
-          texto: nombreFirma,
-          fuente: fuenteNormal,
-          anchoMaximo: 220,
-          maxFontSize: 9,
-          minFontSize: 7,
+          texto:
+            nombreFirma,
+
+          fuente:
+            fuenteNormal,
+
+          anchoMaximo:
+            220,
+
+          maxFontSize:
+            9,
+
+          minFontSize:
+            7,
         })
 
       const lineasFirma =
         dividirTexto({
-          texto: nombreFirma,
-          fuente: fuenteNormal,
-          fontSize: firmaSize,
-          anchoMaximo: 220,
+          texto:
+            nombreFirma,
+
+          fuente:
+            fuenteNormal,
+
+          fontSize:
+            firmaSize,
+
+          anchoMaximo:
+            220,
         })
 
       let firmaY =
         currentY - 15
 
       for (
-        const linea of lineasFirma
+        const linea
+        of lineasFirma
       ) {
         const ancho =
           fuenteNormal
@@ -738,15 +1474,26 @@ app.post(
           linea,
           {
             x:
-              (width - ancho) / 2,
-            y: firmaY,
-            size: firmaSize,
-            font: fuenteNormal,
-            color: rgb(
-              0.20,
-              0.20,
-              0.20
-            ),
+              (
+                width -
+                ancho
+              ) / 2,
+
+            y:
+              firmaY,
+
+            size:
+              firmaSize,
+
+            font:
+              fuenteNormal,
+
+            color:
+              rgb(
+                0.20,
+                0.20,
+                0.20
+              ),
           }
         )
 
@@ -768,26 +1515,35 @@ app.post(
         etiquetaFirma,
         {
           x:
-            (width - anchoEtiqueta) /
-            2,
+            (
+              width -
+              anchoEtiqueta
+            ) / 2,
+
           y:
             firmaY - 2,
-          size: 8,
-          font: fuenteNormal,
-          color: rgb(
-            0.35,
-            0.35,
-            0.35
-          ),
+
+          size:
+            8,
+
+          font:
+            fuenteNormal,
+
+          color:
+            rgb(
+              0.35,
+              0.35,
+              0.35
+            ),
         }
       )
 
       /* ===================================================
-         METADATOS DEL DOCUMENTO
+         METADATOS
       =================================================== */
 
       pdfDoc.setTitle(
-        `Solicitud ${codigo}`
+        `Solicitud Operadora ${consecutivo}`
       )
 
       pdfDoc.setAuthor(
@@ -799,18 +1555,20 @@ app.post(
       )
 
       pdfDoc.setCreator(
-        'Sistema PDF Operadoras'
+        'Sistema Operadoras de Transporte'
       )
 
       /* ===================================================
-         GENERAR PDF FINAL
+         DESCARGA
+
+         El PDF NO se guarda.
       =================================================== */
 
       const pdfBytes =
         await pdfDoc.save()
 
       const nombreArchivo =
-        `${codigo}.pdf`
+        `SOLICITUD_OPERADORA_${consecutivo}.pdf`
 
       res.setHeader(
         'Content-Type',
@@ -828,73 +1586,123 @@ app.post(
       )
 
       res.setHeader(
-        'X-Content-Type-Options',
-        'nosniff'
+        'Cache-Control',
+        'no-store'
       )
 
       res.send(
-        Buffer.from(pdfBytes)
+        Buffer.from(
+          pdfBytes
+        )
       )
 
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
-        'Error generando PDF:',
+        'Error general:',
         error
       )
 
-      if (!res.headersSent) {
-        res.status(500).json({
-          error:
-            'No fue posible generar el documento.',
-        })
+      if (
+        !res.headersSent
+      ) {
+        res
+          .status(500)
+          .json({
+            error:
+              'No fue posible generar el documento.',
+          })
       }
     }
   }
 )
 
 /* =========================================================
-   RUTA NO ENCONTRADA
+   ERROR CORS
 ========================================================= */
 
-app.use((req, res) => {
-  res.status(404).json({
-    error:
-      'Ruta no encontrada.',
-  })
-})
+app.use(
+  (
+    err,
+    req,
+    res,
+    next
+  ) => {
+    if (
+      err.message ===
+      'Origen no permitido por CORS'
+    ) {
+      return res
+        .status(403)
+        .json({
+          error:
+            'Origen no autorizado.',
+        })
+    }
+
+    next(err)
+  }
+)
+
+/* =========================================================
+   404
+========================================================= */
+
+app.use(
+  (
+    req,
+    res
+  ) => {
+    res
+      .status(404)
+      .json({
+        error:
+          'Ruta no encontrada.',
+      })
+  }
+)
 
 /* =========================================================
    INICIAR SERVIDOR
+
+   Compatible con:
+   - Windows local
+   - Render
 ========================================================= */
 
-app.listen(PORT, () => {
-  console.log(
-    '=========================================='
-  )
+app.listen(
+  PORT,
+  '0.0.0.0',
+  () => {
+    console.log(
+      '========================================'
+    )
 
-  console.log(
-    'Servidor PDF Operadoras iniciado'
-  )
+    console.log(
+      'Sistema Operadoras de Transporte'
+    )
 
-  console.log(
-    `Servidor: http://localhost:${PORT}`
-  )
+    console.log(
+      `Servidor iniciado en puerto ${PORT}`
+    )
 
-  console.log(
-    'Plantilla utilizada:'
-  )
+    console.log(
+      fs.existsSync(
+        TEMPLATE_PATH
+      )
+        ? 'Plantilla encontrada ✓'
+        : 'Plantilla NO encontrada ✗'
+    )
 
-  console.log(
-    TEMPLATE_PATH
-  )
+    console.log(
+      SUPABASE_URL
+        ? 'Supabase configurado ✓'
+        : 'Supabase NO configurado ✗'
+    )
 
-  console.log(
-    fs.existsSync(TEMPLATE_PATH)
-      ? 'PLANTILLA ENCONTRADA ✓'
-      : 'PLANTILLA NO ENCONTRADA ✗'
-  )
-
-  console.log(
-    '=========================================='
-  )
-})
+    console.log(
+      '========================================'
+    )
+  }
+)
