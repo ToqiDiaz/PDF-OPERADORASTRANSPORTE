@@ -1,0 +1,35 @@
+# Dependencias
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Variables privadas
+.env
+.env.local
+.env.production
+frontend/.env
+backend/.env
+
+# Bases de datos locales
+*.db
+*.sqlite
+*.sqlite3
+
+# PDFs generados
+generated/
+temp/
+*.tmp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build
+frontend/dist/
+
+# VS Code
+.vscode/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
